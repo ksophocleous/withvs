@@ -12,11 +12,12 @@ import (
 	"github.com/Sirupsen/logrus"
 )
 
+const version = "0.1.0"
 var log *logrus.Logger
 
 func init() {
 	log = logrus.New()
-	log.Level = logrus.DebugLevel
+	log.Level = logrus.WarnLevel
 	log.Formatter = &customTextFormatter{}
 }
 
@@ -35,7 +36,7 @@ func vsTools(flags []string) (string, string, error) {
 	use_vs110 := findFlag(flags, "--vs11")
 	use_vs120 := findFlag(flags, "--vs12")
 	use_vs140 := findFlag(flags, "--vs14")
-	
+
 	if (!use_vs110 && !use_vs120 && !use_vs140) {
 		use_vs110 = true
 		use_vs120 = true
@@ -156,9 +157,7 @@ func execute(flags[] string, command []string) error {
 }
 
 func main() {
-
 	// TODO: check if os is windows
-
 	args := os.Args[1:]
 	i := 0
 	flags := []string{}
@@ -173,6 +172,16 @@ func main() {
 	flags = args[0:i]
 	if i < len(args) {
 		progArgs = args[i+1:]
+	}
+
+	if findFlag(flags, "--debug") {
+		log.Level = logrus.DebugLevel
+	}
+
+	if findFlag(flags, "--version") {
+		log.Level = logrus.InfoLevel
+		log.WithFields(logrus.Fields{"version":version}).Info("version info")
+		os.Exit(0)
 	}
 
 	vcToolsPath, toolsId, err := vsTools(flags)
@@ -206,7 +215,7 @@ func main() {
 		log.WithFields(logrus.Fields{"envFile":envFile}).Debug("could not find env file.. will try to create it")
 		filename, err := ioutil.TempDir("", "")
 		filename = fmt.Sprintf("%s\\_withvs_test.bat", filename)
-		
+
 		log.WithFields(logrus.Fields{"filename":filename}).Debug("creating batch file")
 		f, err := os.Create(filename)
 		if err != nil {
