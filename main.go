@@ -12,7 +12,7 @@ import (
 	"github.com/Sirupsen/logrus"
 )
 
-const version = "0.1.0"
+const version = "0.11.0"
 var log *logrus.Logger
 
 func init() {
