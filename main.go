@@ -101,16 +101,18 @@ func cleanPath(flags []string) {
 	newPaths := []string{}
 
 	for _, v := range paths {
-		if containsAll(v, []string{"mingw64", "bin"}) == false {
-			newPaths = append(newPaths, v)
+		skip := containsAll(v, []string{"mingw64", "bin"}) || containsAll(v, []string{"mingw32", "bin"})
+		if skip {
+			continue
 		}
+		newPaths = append(newPaths, v)
 	}
 
 	path = strings.Join(newPaths, ";")
 	os.Setenv("PATH", path)
 }
 
-func executeComspec(flags[] string, batchFilename string) error {
+func executeComspec(flags []string, batchFilename string) error {
 	log.WithFields(logrus.Fields{"flags":flags, "batchFilename":batchFilename}).Info("executeComspec will try to execute")
 
 	comspec := os.Getenv("COMSPEC")
@@ -120,7 +122,7 @@ func executeComspec(flags[] string, batchFilename string) error {
 	return execute(flags, append([]string{comspec, "/c"}, batchFilename))
 }
 
-func execute(flags[] string, command []string) error {
+func execute(flags []string, command []string) error {
 	silentOnlyErrors := findFlag(flags, "--only-errors")
 
 	cmd := exec.Command(command[0], command[1:]...)
@@ -139,7 +141,8 @@ func execute(flags[] string, command []string) error {
 		out, err := cmd.CombinedOutput()
 		if err != nil {
 			log.Println(string(out))
-			return fmt.Errorf("command '%s' failed: %s", strings.Join(command, " "), err.Error())
+			log.WithFields(logrus.Fields{"command":command, "error": err.Error()}).Error("failed on command")
+			return fmt.Errorf("failed while runnin command")
 		}
 	} else {
 		cmd.Stdin = os.Stdin
@@ -147,7 +150,8 @@ func execute(flags[] string, command []string) error {
 		cmd.Stderr = os.Stderr
 		err := cmd.Run()
 		if err != nil {
-			return fmt.Errorf("failed to start the command '%s': %s", strings.Join(command, " "), err.Error())
+			log.WithFields(logrus.Fields{"command":command, "error": err.Error()}).Error("failed on command")
+			return fmt.Errorf("failed while runnin command")
 		}
 	}
 
@@ -202,6 +206,7 @@ func main() {
 		f, err := os.Create(envFile)
 		if err != nil {
 			log.WithFields(logrus.Fields{"error":err,"envFile":envFile}).Fatal("Error while trying to create environment cache file")
+			os.Exit(1)
 		}
 		defer f.Close()
 		for _, v := range os.Environ() {
@@ -210,30 +215,27 @@ func main() {
 		return
 	}
 
-	err = godotenv.Overload(envFile)
+	filename, err := ioutil.TempDir("", "")
+	filename = fmt.Sprintf("%s\\_withvs_test.bat", filename)
+
+	log.WithFields(logrus.Fields{"filename":filename}).Debug("creating batch file")
+	f, err := os.Create(filename)
 	if err != nil {
-		log.WithFields(logrus.Fields{"envFile":envFile}).Debug("could not find env file.. will try to create it")
-		filename, err := ioutil.TempDir("", "")
-		filename = fmt.Sprintf("%s\\_withvs_test.bat", filename)
-
-		log.WithFields(logrus.Fields{"filename":filename}).Debug("creating batch file")
-		f, err := os.Create(filename)
-		if err != nil {
-			log.WithFields(logrus.Fields{"error":err,"envFile":filename}).Fatal("failed to create temporary batch file")
-		}
-
-		f.WriteString(fmt.Sprintf("@call \"%s\" %s\n", vcToolsPath, vsConfigType))
-		f.WriteString(fmt.Sprintf("@%s %s --save-env\n", os.Args[0], strings.Join(flags, " ")))
-		f.Close()
-
-		err = executeComspec(flags, filename)
-		if err != nil {
-			log.WithFields(logrus.Fields{"flags":flags,"error":err,"batchFilename":filename}).Fatal("failed to execute batchfile via comspec")
-		}
-
-		log.WithFields(logrus.Fields{"filename":filename, "toolset":toolsId, "config": vsConfigType}).Debug("saved env variables to disk")
+		log.WithFields(logrus.Fields{"error":err,"envFile":filename}).Fatal("failed to create temporary batch file")
 	}
 
+	f.WriteString(fmt.Sprintf("@call \"%s\" %s\n", vcToolsPath, vsConfigType))
+	f.WriteString(fmt.Sprintf("@%s %s --save-env\n", os.Args[0], strings.Join(flags, " ")))
+	f.Close()
+
+	err = executeComspec(flags, filename)
+	if err != nil {
+		log.WithFields(logrus.Fields{"flags":flags,"error":err,"batchFilename":filename}).Fatal("failed to execute batchfile via comspec")
+	}
+
+	log.WithFields(logrus.Fields{"filename":filename, "toolset":toolsId, "config": vsConfigType}).Debug("saved env variables to disk")
+
+	// now load that env file
 	err = godotenv.Overload(envFile)
 	if err != nil {
 		log.WithFields(logrus.Fields{"envFile": envFile, "error": err}).Fatal("Failed to load environment file even after it was created")
